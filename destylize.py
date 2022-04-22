@@ -22,9 +22,9 @@ class TestOptions():
     def __init__(self):
 
         self.parser = argparse.ArgumentParser(description="Facial Destylization")
-        self.parser.add_argument("style", type=str, help="target style type")
+        self.parser.add_argument("style", type=str, help="target style type") # 不加--的为位置参数
         self.parser.add_argument("--truncation", type=float, default=0.7, help="truncation for intrinsic style code (content)")
-        self.parser.add_argument("--model_path", type=str, default='./checkpoint/', help="path of the saved models")
+        self.parser.add_argument("--model_path", type=str, default='D:\\checkpoint\\', help="path of the saved models")
         self.parser.add_argument("--model_name", type=str, default='fintune-000600.pt', help="name of the saved fine-tuned model")
         self.parser.add_argument("--data_path", type=str, default='./data/', help="path of dataset")
         self.parser.add_argument("--iter", type=int, default=300, help="total training iterations")
@@ -76,7 +76,7 @@ def noise_normalize_(noises):
         noise.data.add_(-mean).div_(std)
         
 if __name__ == "__main__":
-    device = "cuda"
+    device = "cpu"
 
     parser = TestOptions()
     args = parser.parse()
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     opts = ckpt['opts']
     opts['checkpoint_path'] = model_path
     opts = Namespace(**opts)
-    encoder = pSp(opts)
+    encoder = pSp(opts) # E
     encoder.eval()
     encoder.to(device)
 
@@ -132,7 +132,7 @@ if __name__ == "__main__":
         for file in batchfiles:
             img = transform(Image.open(os.path.join(datapath, file)).convert("RGB"))
             imgs.append(img)
-        imgs = torch.stack(imgs, 0).to(device)
+        imgs = torch.stack(imgs, 0).to(device) # 模拟dataloader，产生批量数据
 
         with torch.no_grad():  
             # reconstructed face g(z^+_e) and extrinsic style code z^+_e
@@ -171,7 +171,8 @@ if __name__ == "__main__":
 
                 img_gen = img_gen.reshape(
                     batch, channel, height // factor, factor, width // factor, factor
-                )
+                ) #? ???
+                # batch, channel, height // factor, 1
                 img_gen = img_gen.mean([3, 5])
 
             Lperc = percept(img_gen, imgs).sum()

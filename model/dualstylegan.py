@@ -7,7 +7,7 @@ class AdaptiveInstanceNorm(nn.Module):
     def __init__(self, fin, style_dim=512):
         super().__init__()
 
-        self.norm = nn.InstanceNorm2d(fin, affine=False)
+        self.norm = nn.InstanceNorm2d(fin, affine=False) # styleGAN2 中认为不需要mean只用std就可以了
         self.style = nn.Linear(style_dim, fin * 2)
 
         self.style.bias.data[:fin] = 1
@@ -45,6 +45,7 @@ class AdaResBlock(nn.Module):
         return out
 
 class DualStyleGAN(nn.Module):
+    # eg 1024,512,8
     def __init__(self, size, style_dim, n_mlp, channel_multiplier=2, twoRes=True, res_index=6):
         super().__init__()
         
@@ -59,9 +60,9 @@ class DualStyleGAN(nn.Module):
         self.res = nn.ModuleList()
         self.res_index = res_index//2 * 2
         self.res.append(AdaResBlock(self.generator.channels[2 ** 2])) # for conv1
-        for i in range(3, self.generator.log_size + 1):
-            out_channel = self.generator.channels[2 ** i]
-            if i < 3 + self.res_index//2:
+        for i in range(3, self.generator.log_size + 1): #range(3, 11)
+            out_channel = self.generator.channels[2 ** i] # i=3,4,5,6 out_channel=512,之后减半
+            if i < 3 + self.res_index//2: # 6
                 # ModRes
                 self.res.append(AdaResBlock(out_channel))
                 self.res.append(AdaResBlock(out_channel))
@@ -98,13 +99,14 @@ class DualStyleGAN(nn.Module):
         fuse_index=18,       # layers > fuse_index do not use the extrinsic style path
         interp_weights=[1]*18, # weight vector for style combination of two paths
     ):
-
+        # get extrinsic style code
         if not input_is_latent:
             if not z_plus_latent:
                 styles = [self.generator.style(s) for s in styles]
             else:
                 styles = [self.generator.style(s.reshape(s.shape[0]*s.shape[1], s.shape[2])).reshape(s.shape) for s in styles]
 
+        # register_buffer() noise for every conv layers
         if noise is None:
             if randomize_noise:
                 noise = [None] * self.generator.num_layers
@@ -123,7 +125,8 @@ class DualStyleGAN(nn.Module):
 
             styles = style_t
         
-        if len(styles) < 2:
+        #! latent是Intermidiate Style Code?
+        if len(styles) < 2: #? 只输入一个style code. styles.shape = (N, style_dim)?
             inject_index = self.generator.n_latent
 
             if styles[0].ndim < 3:
@@ -146,41 +149,52 @@ class DualStyleGAN(nn.Module):
             
         if use_res:
             if exstyles.ndim < 3:
+                #! structure code
                 resstyles = self.style(exstyles).unsqueeze(1).repeat(1, self.generator.n_latent, 1)
+                #! color code
                 adastyles = exstyles.unsqueeze(1).repeat(1, self.generator.n_latent, 1)
             else:
                 nB, nL, nD = exstyles.shape
                 resstyles = self.style(exstyles.reshape(nB*nL, nD)).reshape(nB, nL, nD)
                 adastyles = exstyles
         
-        out = self.generator.input(latent)
-        out = self.generator.conv1(out, latent[:, 0], noise=noise[0])
+        #! Const 4x4x512
+        out = self.generator.input(latent) # => (N, 512, 4, 4) 
+        #! conv 3x3
+        out = self.generator.conv1(out, latent[:, 0], noise=noise[0]) # latent (N, dim)
         if use_res and fuse_index > 0:
+            #! ModRes
             out = self.res[0](out, resstyles[:, 0], interp_weights[0])
         
         skip = self.generator.to_rgb1(out, latent[:, 1])
         i = 1
+        #! conv1多个上采样
         for conv1, conv2, noise1, noise2, to_rgb in zip(
             self.generator.convs[::2], self.generator.convs[1::2], noise[1::2], noise[2::2], self.generator.to_rgbs):
-            if use_res and fuse_index >= i and i > self.res_index:
-                out = conv1(out, interp_weights[i] * self.res[i](adastyles[:, i]) + 
+            if use_res and fuse_index >= i and i > self.res_index: # 后半
+                out = conv1(out, interp_weights[i] * self.res[i](adastyles[:, i]) +
                             (1-interp_weights[i]) * latent[:, i], noise=noise1)
             else:
-                out = conv1(out, latent[:, i], noise=noise1)
-            if use_res and fuse_index >= i and i <= self.res_index:
-                out = self.res[i](out, resstyles[:, i], interp_weights[i])
-            if use_res and fuse_index >= (i+1) and i > self.res_index:
+                out = conv1(out, latent[:, i], noise=noise1)  #! conv3x3
+
+            if use_res and fuse_index >= i and i <= self.res_index: # 前半
+                out = self.res[i](out, resstyles[:, i], interp_weights[i]) #! modres
+
+            if use_res and fuse_index >= (i+1) and i > self.res_index: # 后半
                 out = conv2(out, interp_weights[i+1] * self.res[i+1](adastyles[:, i+1]) + 
                             (1-interp_weights[i+1]) * latent[:, i+1], noise=noise2)
             else:
-                out = conv2(out, latent[:, i + 1], noise=noise2)
-            if use_res and fuse_index >= (i+1) and i <= self.res_index:
-                out = self.res[i+1](out, resstyles[:, i+1], interp_weights[i+1])   
-            if use_res and fuse_index >= (i+2) and i >= self.res_index-1:
+                out = conv2(out, latent[:, i + 1], noise=noise2) #! conv3x3
+
+            if use_res and fuse_index >= (i+1) and i <= self.res_index: # 前半
+                out = self.res[i+1](out, resstyles[:, i+1], interp_weights[i+1]) #! modres  
+
+            if use_res and fuse_index >= (i+2) and i >= self.res_index-1: # 后半
                 skip = to_rgb(out, interp_weights[i+2] * self.res[i+2](adastyles[:, i+2]) +
                               (1-interp_weights[i+2]) * latent[:, i + 2], skip)
             else:
                 skip = to_rgb(out, latent[:, i + 2], skip)
+
             i += 2
             if i > self.res_index and return_feat:
                 return out, skip
