@@ -94,6 +94,7 @@ class pSp(nn.Module):
 		input_is_latent = not input_code
 		if z_plus_latent:
 			input_is_latent = False
+		#! (1,3,1024,1024)  (1, 18, 512)
 		images, result_latent = self.decoder([codes],
 		                                     input_is_latent=input_is_latent,
 		                                     randomize_noise=randomize_noise,

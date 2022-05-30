@@ -1,4 +1,6 @@
 checkpoint/
 datasets/
+data/
 output/
+.vscode/
 **.pyc

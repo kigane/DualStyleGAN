@@ -1,14 +1,16 @@
-import math
-import random
 import functools
+import math
 import operator
+import random
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 from torch.autograd import Function
+from torch.nn import functional as F
 
-from model.stylegan.op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d, conv2d_gradfix
+from model.stylegan.op import (FusedLeakyReLU, conv2d_gradfix,
+                               fused_leaky_relu, upfirdn2d)
+
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -256,7 +258,7 @@ class ModulatedConv2d(nn.Module):
 
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
         if externalweight is None:
-            weight = self.scale * self.weight * style
+            weight = self.scale * self.weight * style #! (1,512,512,3,3)
         else:
             weight = self.scale * (self.weight + externalweight) * style
 
@@ -393,9 +395,9 @@ class ToRGB(nn.Module):
 class Generator(nn.Module):
     def __init__(
         self,
-        size,
-        style_dim,
-        n_mlp,
+        size,                       # 输入图片大小
+        style_dim,                  # 全连接层隐藏单元数 512
+        n_mlp,                      # 全连接层数 8
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
         lr_mlp=0.01,
@@ -414,10 +416,10 @@ class Generator(nn.Module):
                     style_dim, style_dim, lr_mul=lr_mlp, activation="fused_lrelu"
                 )
             )
-
+        #! self.style z->w
         self.style = nn.Sequential(*layers)
 
-        self.channels = {
+        self.channels = { #! 不同大小的特征图对应的通道数
             4: 512,
             8: 512,
             16: 512,
@@ -429,7 +431,7 @@ class Generator(nn.Module):
             1024: 16 * channel_multiplier,
         }
 
-        self.input = ConstantInput(self.channels[4])
+        self.input = ConstantInput(self.channels[4]) #! 初始的 4x4x512 输入
         self.conv1 = StyledConv(
             self.channels[4], self.channels[4], 3, style_dim, blur_kernel=blur_kernel
         )
