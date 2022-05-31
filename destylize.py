@@ -76,7 +76,7 @@ def noise_normalize_(noises):
         noise.data.add_(-mean).div_(std)
         
 if __name__ == "__main__":
-    device = "cpu"
+    device = "cuda"
 
     parser = TestOptions()
     args = parser.parse()

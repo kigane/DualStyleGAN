@@ -121,7 +121,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         noise = mixing_noise(args.batch, args.latent, args.mixing, device)
         fake_img, _ = generator(noise)
 
-        if args.augment:
+        if args.augment:#? 数据增强
             real_img_aug, _ = augment(real_img, ada_aug_p)
             fake_img, _ = augment(fake_img, ada_aug_p)
 
@@ -159,6 +159,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
             r1_loss = d_r1_loss(real_pred, real_img)
 
             discriminator.zero_grad()
+            #? ???
             (args.r1 / 2 * r1_loss * args.d_reg_every + 0 * real_pred[0]).backward()
 
             d_optim.step()
@@ -274,7 +275,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     },
                     f"%s/%s/fintune-%06d.pt"%(args.model_path, args.style, i+1),
                 )
-            
+
 if __name__ == "__main__":
     device = "cuda"
 

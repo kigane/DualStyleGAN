@@ -61,6 +61,7 @@ def sample_data(loader):
 
 
 def d_logistic_loss(real_pred, fake_pred):
+    #! 为什么用softplus?log(1+exp{x})
     real_loss = F.softplus(-real_pred)
     fake_loss = F.softplus(fake_pred)
 

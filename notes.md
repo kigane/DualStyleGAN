@@ -18,6 +18,12 @@
 `python finetune_stylegan.py --batch BATCH_SIZE --ckpt FFHQ_MODEL_PATH --iter ITERATIONS --style DATASET_NAME --augment LMDB_PATH`
 微调后的模型保存在`./checkpoint/cartoon/fintune-000600.pt`.中间结果保存在 `./log/cartoon/`.
 
+- d_loss = d_logistic_loss(real_pred, fake_pred)
+- r1_loss = d_r1_loss(real_pred, real_img) 隔几轮优化一次
+
+- g_loss = g_nonsaturating_loss(fake_pred)
+- path_loss, mean_path_length, path_lengths = g_path_regularize(fake_img, latents, mean_path_length) 隔几轮优化一次
+
 ### Destylize artistic portraits
 `python destylize.py --model_name FINETUNED_MODEL_NAME --batch BATCH_SIZE --iter ITERATIONS DATASET_NAME`  
 内部和外部风格编码保存在 `./checkpoint/cartoon/instyle_code.npy` 和 `./checkpoint/cartoon/exstyle_code.npy`。要加速处理过程，将batch_size设为16。如果风格和真实人脸相差很大，将`--truncation`设小一点，如0.5。
