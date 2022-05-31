@@ -95,11 +95,11 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         g_module = generator
         d_module = discriminator
 
-    accum = 0.5 ** (32 / (10 * 1000))
+    accum = 0.5 ** (32 / (10 * 1000)) #? ???
     ada_aug_p = args.augment_p if args.augment_p > 0 else 0.0
     r_t_stat = 0
 
-    if args.augment and args.augment_p == 0:
+    if args.augment and args.augment_p == 0: #? ???
         ada_augment = AdaptiveAugment(args.ada_target, args.ada_length, 8, device)
 
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
@@ -317,7 +317,7 @@ if __name__ == "__main__":
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
     ).to(device)
     g_ema.eval()
-    accumulate(g_ema, generator, 0)
+    accumulate(g_ema, generator, 0) #? 使用相同的初始化参数
 
     g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)
     d_reg_ratio = args.d_reg_every / (args.d_reg_every + 1)
@@ -344,7 +344,8 @@ if __name__ == "__main__":
 
         except ValueError:
             pass
-
+        
+        #! 加载预训练的模型
         generator.load_state_dict(ckpt["g"])
         discriminator.load_state_dict(ckpt["d"])
         g_ema.load_state_dict(ckpt["g_ema"])

@@ -14,6 +14,7 @@ from torchvision.transforms import functional as trans_fn
 def resize_and_convert(img, size, resample, quality=100):
     img = trans_fn.resize(img, size, resample)
     img = trans_fn.center_crop(img, size)
+    # 将图片保存为二进制格式
     buffer = BytesIO()
     img.save(buffer, format="jpeg", quality=quality)
     val = buffer.getvalue()
@@ -46,6 +47,7 @@ def prepare(
 ):
     resize_fn = partial(resize_worker, sizes=sizes, resample=resample)
 
+    # 按文件名排序
     files = sorted(dataset.imgs, key=lambda x: x[0])
     files = [(i, file) for i, (file, label) in enumerate(files)]
     total = 0
@@ -53,6 +55,7 @@ def prepare(
     with multiprocessing.Pool(n_worker) as pool:
         for i, imgs in tqdm(pool.imap_unordered(resize_fn, files)):
             for size, img in zip(sizes, imgs):
+                #! ... (512-00001, img) (1024-00001, img)
                 key = f"{size}-{str(i).zfill(5)}".encode("utf-8")
 
                 with env.begin(write=True) as txn:

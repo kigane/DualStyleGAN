@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 
 
 class MultiResolutionDataset(Dataset):
+    # path 为 lmdb 数据库位置
     def __init__(self, path, transform, resolution=256):
         self.env = lmdb.open(
             path,
