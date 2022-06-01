@@ -1,22 +1,23 @@
+import argparse
+import math
 import os
+from argparse import Namespace
 
 import numpy as np
 import torch
-from torch import optim
-from util import save_image
-import argparse
-from argparse import Namespace
-from torchvision import transforms
-from torch.nn import functional as F
 import torchvision
 from PIL import Image
+from torch import optim
+from torch.nn import functional as F
+from torchvision import transforms
 from tqdm import tqdm
-import math
 
-from model.stylegan.model import Generator
-from model.stylegan import lpips
-from model.encoder.psp import pSp
 from model.encoder.criteria import id_loss
+from model.encoder.psp import pSp
+from model.stylegan import lpips
+from model.stylegan.model import Generator
+from util import save_image
+
 
 class TestOptions():
     def __init__(self):
@@ -24,7 +25,7 @@ class TestOptions():
         self.parser = argparse.ArgumentParser(description="Facial Destylization")
         self.parser.add_argument("style", type=str, help="target style type") # 不加--的为位置参数
         self.parser.add_argument("--truncation", type=float, default=0.7, help="truncation for intrinsic style code (content)")
-        self.parser.add_argument("--model_path", type=str, default='D:\\checkpoint\\', help="path of the saved models")
+        self.parser.add_argument("--model_path", type=str, default='./checkpoint', help="path of the saved models")
         self.parser.add_argument("--model_name", type=str, default='fintune-000600.pt', help="name of the saved fine-tuned model")
         self.parser.add_argument("--data_path", type=str, default='./data/', help="path of dataset")
         self.parser.add_argument("--iter", type=int, default=300, help="total training iterations")
@@ -46,11 +47,11 @@ def get_lr(t, initial_lr, rampdown=0.25, rampup=0.05):
 
     return initial_lr * lr_ramp
 
-def noise_regularize(noises):
+def noise_regularize(noises): #? ??????
     loss = 0
 
     for noise in noises:
-        size = noise.shape[2]
+        size = noise.shape[2] # [BCHW]->H
 
         while True:
             loss = (
@@ -92,7 +93,7 @@ if __name__ == "__main__":
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
         ]
-    )
+    ) # pSp encoder 要求输入图片为256x256
     
     # fine-tuned StyleGAN g'
     generator_prime = Generator(1024, 512, 8, 2).to(device)
@@ -101,8 +102,8 @@ if __name__ == "__main__":
     generator = Generator(1024, 512, 8, 2).to(device)
     generator.eval()
 
-    ckpt = torch.load(os.path.join(args.model_path, args.style, args.model_name))
-    generator_prime.load_state_dict(ckpt["g_ema"])
+    # ckpt = torch.load(os.path.join(args.model_path, args.style, args.model_name))
+    # generator_prime.load_state_dict(ckpt["g_ema"])
     ckpt = torch.load(os.path.join(args.model_path, 'stylegan2-ffhq-config-f.pt'))
     generator.load_state_dict(ckpt["g_ema"])
     noises_single = generator.make_noise()
@@ -136,9 +137,11 @@ if __name__ == "__main__":
 
         with torch.no_grad():  
             # reconstructed face g(z^+_e) and extrinsic style code z^+_e
+            #!E(S)=z^+_e, img_rec=g(z^+_e)
             img_rec, latent_e = encoder(imgs, randomize_noise=False, return_latents=True, z_plus_latent=True)
             
         for j in range(imgs.shape[0]):
+            #! extrinsic code
             dict2[batchfiles[j]] = latent_e[j:j+1].cpu().numpy()
         
         noises = []
@@ -148,6 +151,7 @@ if __name__ == "__main__":
             noise.requires_grad = True    
 
         # z^+ to be optimized in Eq. (1)
+        #! 用z^+_e初始化z^+，然后去优化z^+
         latent = latent_e.detach().clone()
         latent.requires_grad = True
 
@@ -159,27 +163,29 @@ if __name__ == "__main__":
             t = i / args.iter
             lr = get_lr(t, 0.1)
             optimizer.param_groups[0]["lr"] = lr
-            latent_n = latent
+            latent_n = latent # [1,18,512]
 
-            # g'(z^+)
+            #! g'(z^+)
             img_gen, _ = generator_prime([latent_n], input_is_latent=False, noise=noises, z_plus_latent=True)
 
-            batch, channel, height, width = img_gen.shape
+            batch, channel, height, width = img_gen.shape #[1,3,1024,1024]
 
             if height > 256:
                 factor = height // 256
 
                 img_gen = img_gen.reshape(
                     batch, channel, height // factor, factor, width // factor, factor
-                ) #? ???
+                ) #! [1,3,256,4,256,4] 相当于一个stride=4的平均池化
                 # batch, channel, height // factor, 1
-                img_gen = img_gen.mean([3, 5])
+                img_gen = img_gen.mean([3, 5]) # [1,3,256,256]
 
+            #! img_gen=g'(z^+) imgs=S
             Lperc = percept(img_gen, imgs).sum()
             LID = id_loss(img_gen, imgs)
-            Lreg = latent.std(dim=1).mean()
-            Lnoise = noise_regularize(noises)
+            Lreg = latent.std(dim=1).mean() # 18个通道分别求标准差再取均值
+            Lnoise = noise_regularize(noises) #? len(noises)=17 (size=1024时,4x4,8x8x2,...,1024x1024x2)
 
+            #! latent optimization loss eq
             loss = Lperc + 0.1 * LID + Lreg + 1e5 * Lnoise
 
             optimizer.zero_grad()
@@ -216,6 +222,7 @@ if __name__ == "__main__":
                 vis = torchvision.utils.make_grid(torch.cat([imgs[j:j+1], img_rec[j:j+1].detach(), 
                                                              img_dsty[j:j+1].detach(), img_refine[j:j+1].detach()], dim=0), 4, 1)
                 save_image(torch.clamp(vis.cpu(),-1,1), os.path.join("./log/%s/destylization/"%(args.style), batchfiles[j]))
+                #! intrinsic code
                 dict[batchfiles[j]] = latent_i[j:j+1].cpu().numpy()
     
     np.save(os.path.join(args.model_path, args.style, 'instyle_code.npy'), dict)    
